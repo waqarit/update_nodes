@@ -1,0 +1,5 @@
+name = Update Nodes Batch
+description = Update Nodes module to update nodes in Batch.
+; Information added by Waqar Ali on 2016-04-29
+package = others
+core = 7.x

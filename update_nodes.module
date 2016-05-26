@@ -1,0 +1,230 @@
+<?php
+/**
+ * Implements hook_menu  <<<< module containg select options of parent terms  >>>>>>
+ */
+function update_nodes_menu() {
+  $items = array();
+  $items['update_nodes'] = array(
+    'title' => 'Update Nodes Batch',
+    'description' => 'Update Nodes In A Batch Process.',
+	'page callback' => 'drupal_get_form',
+    'page arguments' => array('update_nodes_form'),
+    'access arguments' => array('administer content'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+
+/**
+ * Implements Form
+ */
+function update_nodes_form($form, &$form_state){
+	
+	$form = array();
+	$form['number_option'] = array(
+	  '#type' => 'select',
+	  '#title' => t('Select an Option'),
+	  '#options' => numbers_of_option(),
+	);
+	
+	$form['submit'] = array(
+	  '#type' => 'submit',
+	  '#value' => 'Submit',
+	);
+	
+	return $form;
+}
+
+/**
+ * Implements Drop down options
+ */
+ function numbers_of_option(){
+	 
+	$vid = 5; // vocabulary id.
+	
+	$parent_terms = taxonomy_get_tree($vid, $parent = 0, $max_depth = 1);
+	
+	$options = array();
+	if(count($parent_terms) > 0){
+		foreach($parent_terms as  $parents){
+			$option[$parents->tid] = $parents->name;  // options created here
+		}
+		$options = array('All' => '-- All --') + $option; // use + for merging array without reindexing
+		return $options;
+	} else {
+		return array();
+	}
+	
+ }
+ 
+/**
+ * Implements update_nodes_batch
+ */
+function update_nodes_form_submit($form, &$form_state) {
+	
+	// Start Batch of node creation.
+	$batch = array(
+		'title' => t('Updating Nodes Finally.'),
+		'operations' => array(),
+		'finished' => 'update_nodes_batch_finished',
+		'init_message' => t('Node Updation Is Starting.'),
+		'progress_message' => t('Processed @current out of @total.'),
+		'error_message' => t('Node Updation has encountered an error.'),    
+	);
+	
+	$type = 'umar';
+	$cate_field_name = 'field_cate';  // machine name of category field
+	$vid = 5;  // vocabulary id
+	$parent_term = $form_state['values']['number_option'];
+	
+	  // Create operations array.
+	
+	if(!is_numeric($parent_term)){ // ie value of option "---All---" 
+		$parent_terms = taxonomy_get_tree($vid, $parent = 0, $max_depth = 1);
+		foreach($parent_terms as $parent){
+			$parents[] = $parent->tid;
+		}
+		$query = db_select('field_data_'.$cate_field_name, $cate_field_name);
+		$query->fields($cate_field_name, array('entity_id'));
+		$query->condition($cate_field_name.'_tid', $parents, 'IN');
+		$query->condition('bundle', $type, '=');
+		
+		$nids = $query->execute()->fetchCol();
+		
+		foreach($nids as $nid){
+			 $batch['operations'][] = array('update_nodes_table', array($nid));
+		}
+	} else {
+		$query = db_select('field_data_'.$cate_field_name, $cate_field_name);
+		$query->fields($cate_field_name, array('entity_id'));
+		$query->condition($cate_field_name.'_tid', $parent_term, '=');
+		$query->condition('bundle', $type, '=');
+		
+		$nids = $query->execute()->fetchCol();
+		
+		//$end = count($nids);
+		//for($i = 0; $i < $end; $i++){
+		
+		foreach($nids as $nid){
+			$batch['operations'][] = array('update_nodes_table', array($nid));
+		}
+		
+	}
+
+  
+  batch_set($batch);  // Set the batch operation.
+  batch_process('update_nodes'); // page to return to after complete
+
+}
+
+/**
+ * Helper function to create nodes in batch process.
+ * @param type $number_of_nodes
+ */
+function update_nodes_table($nid, &$context) {
+  /*
+   *  Your Programatically Node Creation Code Here.
+   */
+	
+	$type = 'umar';
+	$txt_field_name = 'field_myweight'; // machine name of text field 
+	$cate_field_name = 'field_cate';  // machine name of category term reference field
+	$vid = 5;  // vocabulary id
+	
+	$query = db_select('field_data_'.$txt_field_name, $txt_field_name);
+		$query->fields($txt_field_name, array($txt_field_name.'_value'));
+		$query->condition($txt_field_name.'.entity_id', $nid, '=');
+		$query->condition('bundle', $type, '=');
+		
+	$matched_node = $query->execute()->fetchField();
+	
+	$node = node_load($nid);
+	
+	if(empty($matched_node)){
+		
+		$context['message'] = "Updating field of Node: $nid.";
+		$node->{$txt_field_name}['und'][0]['value'] = 2;  // updated text field here
+		node_save($node);
+		$context['results'][] = "Updated Text field of Node: $node->title.";
+	}
+	
+	
+	//$node_tid = $node->{$cate_field_name}['und'];
+	$parent_terms = taxonomy_get_tree($vid, $parent = 0, $max_depth = 1);
+	$parents = array();
+	foreach($parent_terms as  $parent_term) {
+		$parents[] = $parent_term->tid;
+	}
+	
+	$cate = array();
+	foreach($node->{$cate_field_name}['und'] as $tids){
+		$cate[] = $tids['tid'];
+	}
+	
+	$result = array_intersect($parents, $cate);
+
+	foreach($result as $par) {
+		$children = taxonomy_get_children($par, $vid); //2nd level
+		foreach($children as $chs) {
+			if (in_array($chs->tid, $cate)) {
+				$children_3th = taxonomy_get_children($chs->tid, $vid); //3rd level
+				if(!$children_3th) {
+					$newterms = array('Popular', 'Other');
+					foreach($newterms as $newt){
+						$term = new stdClass();
+						$term->vid = $vid;
+						$term->name = $newt;
+						$term->parent = $chs->tid;
+						taxonomy_term_save($term);
+						$last_tid = $term->tid;
+					}
+		  
+					$context['message'] = "Updating Term field of Node: $nid.";
+					$node->{$cate_field_name}['und'][] = array('tid' => $last_tid);
+					node_save($node);
+					$context['results'][] = "Updated Term field of Node: $node->title.";
+		
+				} else {
+					foreach($children_3th as $chs_3) {
+						if (!in_array($chs_3->tid, $cate)) {
+
+							$other = taxonomy_term_load($chs_3->tid);
+							$other_name = $other->name;
+							if ($other_name == 'Other'){
+							  $other_tid = $other->tid;
+							  $context['message'] = "Updating Term field of Node: $nid.";
+							  $node->{$cate_field_name}['und'][] = array('tid' => $other_tid );
+							  node_save($node);
+							  $context['results'][] = "Updated Term field of Node: $node->title.";
+							}
+						}
+					}
+
+				}
+
+			}
+		}
+	}			
+		
+}
+/**
+ * Callback : Called when batch process is finished.
+ */
+function update_nodes_batch_finished($success, $results, $operations) {
+  if($success) {
+	watchdog(t('Update Nodes'), 'Total @count Nodes Updated Successfully:', array('@count' => count($results)), WATCHDOG_INFO);
+	$message = t('<i>Total @count Nodes Updated Successfully:</i>', array('@count' => count($results)));
+	//$message .= theme('item_list', array('items' => $results));
+    drupal_set_message($message);
+  }
+  else {
+    $error_operation = reset($operations);
+    $message = t('An error occurred while processing %error_operation with arguments: @arguments', array(
+      '%error_operation' => $error_operation[0],
+      '@arguments' => print_r($error_operation[1], TRUE)
+    ));
+	watchdog(t('Update Nodes'), 'An error occurred while processing %error_operation with arguments: @arguments', array('%error_operation' => $error_operation[0], '@arguments' => print_r($error_operation[1], TRUE)), WATCHDOG_ERROR);
+	drupal_set_message($message, 'error');
+  }
+}
