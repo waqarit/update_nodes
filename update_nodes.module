@@ -186,7 +186,7 @@ function update_nodes_table($nid, &$context) {
 					$context['results'][] = "Updated Term field of Node: $node->title.";
 		
 				} else {
-					foreach($children_3th as $chs_3) {
+					/* foreach($children_3th as $chs_3) {
 						if (!in_array($chs_3->tid, $cate)) {
 
 							$other = taxonomy_term_load($chs_3->tid);
@@ -199,6 +199,25 @@ function update_nodes_table($nid, &$context) {
 							  $context['results'][] = "Updated Term field of Node: $node->title.";
 							}
 						}
+					}*/
+					// it's updated code.
+					$chs = array();
+					foreach($children_3th as $chs_3) {
+						$chs[] = $chs_3->tid;
+					}
+					
+					$cate1 = array();
+					foreach($node->{$cate_field_name}['und'] as $tids){
+						$cate1[] = $tids['tid'];
+					}
+					
+					$result = array_intersect($chs, $cate1);
+					
+					if (count($result) == 0){
+					  $context['message'] = "Updating Term field of Node: $nid.";
+					  $node->{$cate_field_name}['und'][] = array('tid' => current($chs));
+					  node_save($node);
+					  $context['results'][] = "Updated Term field of Node: $node->title.";
 					}
 
 				}
